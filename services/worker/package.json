@@ -1,0 +1,17 @@
+{
+  "name": "linkboard-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Drains the Redis click queue into Postgres. Built by Nixpacks (no Dockerfile).",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ioredis": "^5.4.1",
+    "pg": "^8.12.0"
+  }
+}

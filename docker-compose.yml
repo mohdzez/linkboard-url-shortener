@@ -1,0 +1,68 @@
+# Run the whole demo locally:  docker compose up --build
+# Then open  http://localhost:3001/  (dashboard)  and  http://localhost:3000/  (api)
+#
+# This mirrors what Liftoff provisions in your DigitalOcean account:
+#   postgres  ~ Managed PostgreSQL      redis ~ Managed Redis      minio ~ Spaces (S3)
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: linkboard
+      POSTGRES_PASSWORD: linkboard
+      POSTGRES_DB: linkboard
+    ports: ["5432:5432"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  minio: # S3-compatible stand-in for DigitalOcean Spaces
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+
+  createbucket: # one-shot: make the "linkboard" bucket then exit
+    image: minio/mc
+    depends_on: [minio]
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      /usr/bin/mc mb -p local/linkboard || true;
+      /usr/bin/mc anonymous set download local/linkboard || true;
+      exit 0;"
+
+  api:
+    build: ./services/api
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://linkboard:linkboard@postgres:5432/linkboard
+      REDIS_URL: redis://redis:6379
+      SPACES_BUCKET: linkboard
+      SPACES_ENDPOINT: http://minio:9000
+      SPACES_REGION: us-east-1
+      SPACES_KEY: minioadmin
+      SPACES_SECRET: minioadmin
+      SESSION_SECRET: dev-only-change-me
+    ports: ["3000:3000"]
+    depends_on: [postgres, redis, minio]
+
+  web:
+    build: ./services/web
+    environment:
+      PORT: 3000
+      API_URL: http://api:3000
+    ports: ["3001:3000"]
+    depends_on: [api]
+
+  worker: # no Dockerfile in the repo (Nixpacks on Liftoff) — run on a base node image locally
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install --omit=dev && node src/index.js"
+    volumes: ["./services/worker:/app"]
+    environment:
+      DATABASE_URL: postgres://linkboard:linkboard@postgres:5432/linkboard
+      REDIS_URL: redis://redis:6379
+    depends_on: [postgres, redis]

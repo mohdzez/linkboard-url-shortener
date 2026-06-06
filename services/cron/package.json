@@ -1,0 +1,16 @@
+{
+  "name": "linkboard-cron",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scheduled job — prunes links older than PRUNE_DAYS. Runs and exits.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.12.0"
+  }
+}

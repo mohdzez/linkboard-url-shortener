@@ -1,0 +1,107 @@
+# =============================================================================
+# Linkboard — a Liftoff demo app (URL shortener + click analytics)
+#
+# This is liftoff.yml v2 (multi-service). It declares FIVE components that build
+# from this one repo, plus a managed Postgres and a Spaces bucket.
+#
+# Redis and the wiring between components (the "connections") are part of
+# Liftoff's interactive graph and are added on the CANVAS — see README.md
+# ("On the Liftoff canvas"). The env vars they inject (DATABASE_URL, REDIS_URL,
+# SPACES_*, API_URL) are documented there too.
+# =============================================================================
+version: "2.0"
+
+services:
+  # 1) API — Express service: create/list links, redirect, export to Spaces.
+  - name: api
+    type: service
+    runtime:
+      instance_size: apps-s-1vcpu-0.5gb   # 512 MB — the smallest instance
+      replicas: 2                          # shows horizontal scaling
+      port: 3000
+    build:
+      strategy: dockerfile
+      context: services/api
+      dockerfile_path: Dockerfile
+    healthcheck:
+      path: /health
+    routes:
+      - path: /                            # short links + /api/* live here
+    env:
+      NODE_ENV: production
+      LOG_LEVEL: info
+    secrets:                               # values entered in the Liftoff vault
+      - SESSION_SECRET
+      - SPACES_KEY
+      - SPACES_SECRET
+
+  # 2) WEB — tiny server-rendered dashboard. Talks to the API over the
+  #    internal service-link URL injected as API_URL (see README).
+  - name: web
+    type: service
+    runtime:
+      instance_size: apps-s-1vcpu-0.5gb
+      replicas: 1
+      port: 3000
+    build:
+      strategy: dockerfile
+      context: services/web
+      dockerfile_path: Dockerfile
+    healthcheck:
+      path: /health
+    routes:
+      - path: /app
+    env:
+      NODE_ENV: production
+
+  # 3) WORKER — background consumer. NO Dockerfile on purpose: this component
+  #    showcases the Nixpacks build path (auto-detected from package.json).
+  - name: worker
+    type: worker
+    runtime:
+      instance_size: apps-s-1vcpu-0.5gb
+      replicas: 1
+      port: 3000          # required by the schema; a worker exposes no routes
+    build:
+      strategy: nixpacks
+      context: services/worker
+    command: node src/index.js
+
+  # 4) CRON — scheduled job: prunes old links every night at 03:00.
+  - name: cron
+    type: job
+    runtime:
+      instance_size: apps-s-1vcpu-0.5gb
+      replicas: 1
+      port: 3000          # required by the schema; a job exposes no routes
+    build:
+      strategy: dockerfile
+      context: services/cron
+      dockerfile_path: Dockerfile
+    schedule: "0 3 * * *"
+    jobKind: cron
+    command: node src/index.js
+
+  # 5) DOCS — a static site (served from a tiny nginx image).
+  - name: docs
+    type: static_site
+    runtime:
+      instance_size: apps-s-1vcpu-0.5gb
+      replicas: 1
+      port: 8080
+    build:
+      strategy: dockerfile
+      context: services/docs
+      dockerfile_path: Dockerfile
+    routes:
+      - path: /docs
+
+# Env-shared managed resources (one each in liftoff.yml v2).
+database:
+  enabled: true
+  engine: postgres
+  version: "15"
+  size: db-s-1vcpu-1gb
+
+storage:
+  enabled: true            # creates a DigitalOcean Spaces bucket
